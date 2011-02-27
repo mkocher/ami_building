@@ -3,10 +3,11 @@
 
 #ami-08f41161 # ec2-run-instances ami-08f41161 -k mine2 -t c1.medium
 
-export IMAGE_NAME=refactoredcentos5i386
+export architecture="i386" # x86_64 or i386
+export IMAGE_NAME=centos5-$architecture
 export IMAGE_VERSION=alpha1
 # For vmlinuz-2.6.18-xenU-ec2-v1.0.i386
-export KERNEL_ID=aki-9b00e5f2       #32bit
+# export KERNEL_ID=aki-9b00e5f2       #32bit
 # export KERNEL_ID=aki-9800e5f1       #64bit - doesn't seem to be necessary or work
 
 source auth.sh
@@ -30,10 +31,16 @@ makeImageAndFilesystems() {
     /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x console
     /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x null
     /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x zero
+	mkdir /mnt/ec2-fs/dev/pts
     mkdir /mnt/ec2-fs/proc
     mount -t proc none /mnt/ec2-fs/proc
     mkdir /mnt/ec2-fs/etc
-    cat <<EOL > /mnt/ec2-fs/etc/fstab
+
+    echo "Created 10Gb disk image and filesystems"
+}
+
+create32Fstab() {
+    cat <<'EOL' > /mnt/ec2-fs/etc/fstab
 /dev/sda1  /         ext3    defaults        1 1
 /dev/sda2  /mnt      ext3    defaults        1 2
 /dev/sda3  swap      swap    defaults        0 0
@@ -43,7 +50,17 @@ none       /proc     proc    defaults        0 0
 none       /sys      sysfs   defaults        0 0
 rpc_pipefs /var/lib/nfs/rpc_pipefs rpc_pipefs defaults 0 0
 EOL
-    echo "Created 10Gb disk image and filesystems"
+}
+
+create64Fstab() {
+    cat <<'EOL' > /mnt/ec2-fs/etc/fstab
+/dev/sda1  /         ext3 defaults 1 1
+/dev/sdb   /mnt      ext3 defaults 1 2
+none       /dev/pts  devpts  gid=5,mode=620  0 0
+none       /dev/shm  tmpfs   defaults        0 0
+none       /proc     proc    defaults        0 0
+none       /sys      sysfs   defaults        0 0
+EOL
 }
 
 doBaseAndSecondaryInstall() {
@@ -88,40 +105,40 @@ metadata_expire=300
 
 [base]
 name=CentOS-5 - Base
-mirrorlist=http://mirrorlist.centos.org/?release=5&arch=i386&repo=os
-#baseurl=http://mirror.centos.org/centos/5/os/i386/
+mirrorlist=http://mirrorlist.centos.org/?release=5&arch=$architecture&repo=os
+#baseurl=http://mirror.centos.org/centos/5/os/$architecture/
 gpgcheck=1
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
 
 #released updates 
 [updates]
 name=CentOS-5 - Updates
-mirrorlist=http://mirrorlist.centos.org/?release=5&arch=i386&repo=updates
-#baseurl=http://mirror.centos.org/centos/5/updates/i386/
+mirrorlist=http://mirrorlist.centos.org/?release=5&arch=$architecture&repo=updates
+#baseurl=http://mirror.centos.org/centos/5/updates/$architecture/
 gpgcheck=1
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
 
 #packages used/produced in the build but not released
 [addons]
 name=CentOS-5 - Addons
-mirrorlist=http://mirrorlist.centos.org/?release=5&arch=i386&repo=addons
-#baseurl=http://mirror.centos.org/centos/5/addons/i386/
+mirrorlist=http://mirrorlist.centos.org/?release=5&arch=$architecture&repo=addons
+#baseurl=http://mirror.centos.org/centos/5/addons/$architecture/
 gpgcheck=1
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
 
 #additional packages that may be useful
 [extras]
 name=CentOS-5 - Extras
-mirrorlist=http://mirrorlist.centos.org/?release=5&arch=i386&repo=extras
-#baseurl=http://mirror.centos.org/centos/5/extras/i386/
+mirrorlist=http://mirrorlist.centos.org/?release=5&arch=$architecture&repo=extras
+#baseurl=http://mirror.centos.org/centos/5/extras/$architecture/
 gpgcheck=1
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
 
 #additional packages that extend functionality of existing packages
 [centosplus]
 name=CentOS-5 - Plus
-mirrorlist=http://mirrorlist.centos.org/?release=5&arch=i386&repo=centosplus
-#baseurl=http://mirror.centos.org/centos/5/centosplus/i386/
+mirrorlist=http://mirrorlist.centos.org/?release=5&arch=$architecture&repo=centosplus
+#baseurl=http://mirror.centos.org/centos/5/centosplus/$architecture/
 gpgcheck=1
 enabled=0
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
@@ -165,12 +182,36 @@ EOL
     echo "Finished Secondary install"
 }
 
-installKernelModules() {
+install32KernelModules() {
 	echo "Fetch Amazon EC2 kernel modules"
 	curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
 	echo "Installing EC2 kernel modules"
 	tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz -C /mnt/ec2-fs/
 	rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
+}
+
+install64KernelModules() {
+	echo "Fetch Amazon EC2 kernel modules"
+	curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
+	echo "Installing EC2 kernel modules"
+	tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz -C /mnt/ec2-fs/
+	rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
+}
+
+setLdConfPatchStringFor32bit() {
+	cat <<'LDCONF_PATCH' >> /mnt/ld_conf_patch
+#fix '4gb seg fixup' Xen errors
+cat <<'LDCONF' > /etc/ld.so.conf.d/libc6-xen.conf
+# This directive teaches ldconfig to search in nosegneg subdirectories
+# and cache the DSOs there with extra bit 0 set in their hwcap match
+# fields.  In Xen guest kernels, the vDSO tells the dynamic linker to
+# search in nosegneg subdirectories and to match this extra hwcap bit
+# in the ld.so.cache file.
+hwcap 0 nosegneg
+
+LDCONF
+/sbin/ldconfig -v
+LDCONF_PATCH
 }
 
 doPostInstall() {
@@ -184,17 +225,17 @@ echo "Starting Post install"
 echo "127.0.0.1     localhost   localhost.localdomain" > /etc/hosts
 authconfig --enableshadow --useshadow --enablemd5 --updateall
 
-#fix '4gb seg fixup' Xen errors
-cat <<'LDCONF' > /etc/ld.so.conf.d/libc6-xen.conf
-# This directive teaches ldconfig to search in nosegneg subdirectories
-# and cache the DSOs there with extra bit 0 set in their hwcap match
-# fields.  In Xen guest kernels, the vDSO tells the dynamic linker to
-# search in nosegneg subdirectories and to match this extra hwcap bit
-# in the ld.so.cache file.
-hwcap 0 nosegneg
+EOL
+	test -f /mnt/ld_conf_patch && cat /mnt/ld_conf_patch >> /mnt/ec2-fs/tmp/post-install-script
 
-LDCONF
-/sbin/ldconfig -v
+	cat <<'EOL' >> /mnt/ec2-fs/tmp/post-install-script
+echo "/sbin/MAKEDEV /dev/urandom" >> /etc/rc.sysinit
+echo "/sbin/MAKEDEV /dev/random" >> /etc/rc.sysinit
+echo "/sbin/MAKEDEV /dev/sdc" >> /etc/rc.sysinit
+echo "/sbin/MAKEDEV /dev/sdc1" >> /etc/rc.sysinit
+echo "/sbin/MAKEDEV /dev/sdc2" >> /etc/rc.sysinit
+echo "/sbin/MAKEDEV /dev/ptmx" >> /etc/rc.sysinit
+
 
 echo "Disabling TTYs"
 perl -p -i -e 's/(.*tty2)/#\1/' /etc/inittab
@@ -384,6 +425,7 @@ chmod +x /usr/local/sbin/update-modules.sh
 cat <<'EOF'> /usr/local/sbin/update-tools.sh
 #!/bin/bash
 
+
 # Requires ruby package to be installed -install will fail but instance will boot without
 # Update ec2-ami-tools autmatically.
 [ -f ec2-ami-tools.noarch.rpm ] && rm -f ec2-ami-tools.noarch.rpm
@@ -465,9 +507,9 @@ bundleVolume() {
     echo "Bundling Volume"
     mkdir -p /mnt/tmp
     if [ -z "$KERNEL_ID" ]; then
-      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r i386
+      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture
     else 
-      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r i386 --kernel $KERNEL_ID
+      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture --kernel $KERNEL_ID
     fi
     echo "Finished Bundling Volume"
 
@@ -491,11 +533,31 @@ cleanup() {
     echo "Done! Put a fork in it!"
 }
 
-makeImageAndFilesystems
-doBaseAndSecondaryInstall
-installKernelModules
-doPostInstall
-bundleVolume
-uploadBundle
-cleanup
+if [ "$architecture" == "i386" ]; then
+	echo "Building i386 AMI"
+	updateEc2AmiTools
+	makeImageAndFilesystems
+	create32Fstab
+	doBaseAndSecondaryInstall
+	install32KernelModules
+	setLdConfPatchStringFor32bit
+	doPostInstall
+	bundleVolume
+	uploadBundle
+	# cleanup
+elif [ "$architecture" == "x86_64" ]; then
+	echo "Building x86_64 AMI"
+	updateEc2AmiTools
+	makeImageAndFilesystems
+	create64Fstab
+	doBaseAndSecondaryInstall
+	install64KernelModules
+	doPostInstall
+	bundleVolume
+	uploadBundle
+	# cleanup
+else
+	echo "Please set your architecture to i386 or x86_64"
+	exit 1
+fi
 
