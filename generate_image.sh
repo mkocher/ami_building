@@ -1,10 +1,11 @@
 #!/bin/bash -e
 
-# ami-0a59bb63 seems to be a good 64bit 5.4 ami # ec2-run-instances ami-0a59bb63 -k mine2 -t m1.large
+# ami-0a59bb63 seems to be a good 64bit 5.4 ami     # ec2-run-instances ami-0a59bb63 -k mine2 -t m1.large
 # ami-08f41161  seems to be a good 32bit centos ami # ec2-run-instances ami-08f41161 -k mine2 -t c1.medium
 
-export architecture="i386" # x86_64 or i386
-export IMAGE_NAME=centos5-$architecture
+# export architecture="i386"
+export architecture="x86_64"
+export IMAGE_NAME=centos5-$architecture-2
 export IMAGE_VERSION=alpha1
 # For vmlinuz-2.6.18-xenU-ec2-v1.0.i386
 # export KERNEL_ID=aki-9b00e5f2       #32bit - doesn't seem to be neccessary, does work.
@@ -160,8 +161,7 @@ EOL
   yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y groupinstall Base
   echo "Finished Base install"
   echo "Starting Secondary install"
-  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y install postfix openssh openssh-askpass openssh-clients openssh-server gcc* bison flex compat-libstdc++-296 subversion autoconf automake libtool compat-gcc-34-g77 sysstat rpm-build fping vim-common vim-enhanced pkgconfig elinks screen yum-utils rsyslog rpmforge-release dstat monit ifstat net-snmp
-  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y erase sendmail
+  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y install openssh openssh-clients openssh-server
   yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y clean packages
   cat <<EOL > /mnt/ec2-fs/etc/sysconfig/network
 NETWORKING=yes
@@ -312,11 +312,8 @@ SSH
 chmod +x /etc/init.d/getsshkey
 
 echo "Modifying Services"
-chkconfig --add postfix
 chkconfig --add getsshkey
-chkconfig --level 4 rsyslog on
 chkconfig --level 4 getsshkey on
-chkconfig --level 4 postfix on 
 chkconfig --level 4 psacct on
 chkconfig --level 4 smartd off
 chkconfig --level 4 anacron off
@@ -367,13 +364,6 @@ echo "Setting up Bash environment for root"
 cat <<'EOF'> /root/.bashrc
 # .bashrc
 
-# User specific aliases and functions
-
-alias rm='rm -i'
-alias cp='cp -i'
-alias mv='mv -i'
-alias vi='vim'
-
 # Source global definitions
 if [ -f /etc/bashrc ]; then
         . /etc/bashrc
@@ -421,21 +411,6 @@ EOF
 
 chmod +x /usr/local/sbin/update-modules.sh
 
-cat <<'EOF'> /usr/local/sbin/update-tools.sh
-#!/bin/bash
-
-
-# Requires ruby package to be installed -install will fail but instance will boot without
-# Update ec2-ami-tools autmatically.
-[ -f ec2-ami-tools.noarch.rpm ] && rm -f ec2-ami-tools.noarch.rpm
-echo "Attempting ami-utils update from S3"
-(wget http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.noarch.rpm && echo "Retreived ec2-ami-tools from S3" || echo "Unable to retreive ec2-ami-tools from S3")|logger -s -t "ec2"
-(rpm -Uvh ec2-ami-tools.noarch.rpm && echo "Updated ec2-ami-tools from S3" || echo "ec2-ami-tools already up to date")|logger -s -t "ec2"
-
-EOF
-
-chmod +x /usr/local/sbin/update-tools.sh
-
 cat <<'EOF'> /etc/rc.local
 #!/bin/sh
 #
@@ -447,9 +422,6 @@ cat <<'EOF'> /etc/rc.local
 if [ -f "/root/firstrun" ]; then
     # Randomise root password to avoid common password across instances:
     dd if=/dev/urandom count=50|md5sum|passwd --stdin root
-
-    # Update AMI tools to the latest version:
-    [ -x "/usr/local/sbin/update-tools.sh" ] && /usr/local/sbin/update-tools.sh
 
     # Try to find kernel modules matching current kernel:
     [ -x "/usr/local/sbin/update-modules.sh" ] && /usr/local/sbin/update-modules.sh
@@ -474,8 +446,6 @@ if [ -f "/root/firstrun" ]; then
 fi
 
 touch /var/lock/subsys/local
-# Update the ec2-ami-tools
-/usr/local/sbin/update-tools.sh
 
 # =*Output ssh host keys to console*=
 [ -f /etc/ssh/ssh_host_key ] || (ssh-keygen -f /etc/ssh/ssh_host_key -t rsa1 -C 'host' -N '' | logger -s -t "ec2")
@@ -518,10 +488,7 @@ uploadBundle() {
   echo "Uploading Bundle"
   ec2-upload-bundle -b $AWS_BUCKET -m /mnt/tmp/$IMAGE_NAME.manifest.xml -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY --retry 5
   echo "Finished Uploading Bundle"
-}
-
-registerAmi() {
-  
+  echo "to register, run: ec2-register $AWS_BUCKET/$IMAGE_NAME.manifest.xml"
 }
 
 cleanup() {
