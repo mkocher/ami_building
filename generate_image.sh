@@ -1,46 +1,46 @@
 #!/bin/bash -e
-# ami-0a59bb63 seems to be a good 64bit 5.4 ami # ec2-run-instances ami-0a59bb63 -k mine2 -t m1.large
 
-#ami-08f41161 # ec2-run-instances ami-08f41161 -k mine2 -t c1.medium
+# ami-0a59bb63 seems to be a good 64bit 5.4 ami # ec2-run-instances ami-0a59bb63 -k mine2 -t m1.large
+# ami-08f41161  seems to be a good 32bit centos ami # ec2-run-instances ami-08f41161 -k mine2 -t c1.medium
 
 export architecture="i386" # x86_64 or i386
 export IMAGE_NAME=centos5-$architecture
 export IMAGE_VERSION=alpha1
 # For vmlinuz-2.6.18-xenU-ec2-v1.0.i386
-# export KERNEL_ID=aki-9b00e5f2       #32bit
+# export KERNEL_ID=aki-9b00e5f2       #32bit - doesn't seem to be neccessary, does work.
 # export KERNEL_ID=aki-9800e5f1       #64bit - doesn't seem to be necessary or work
 
 source auth.sh
 
 updateEc2AmiTools() {
-	echo "Updating Local ec2-ami-tools"
-    wget http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.noarch.rpm
-	rpm -Uvh ec2-ami-tools.noarch.rpm || true
+  echo "Updating Local ec2-ami-tools"
+  wget http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.noarch.rpm
+  rpm -Uvh ec2-ami-tools.noarch.rpm || true
 }
 
 makeImageAndFilesystems() {
-    echo "Creating 10GB Image"
-    mkdir /mnt/image
-    dd if=/dev/zero of=/mnt/image/$IMAGE_NAME bs=1M count=10240
-    echo "Creating File System"
-    mke2fs -F -j /mnt/image/$IMAGE_NAME
-    mkdir /mnt/ec2-fs
-    echo "Mounting File System in /mnt/ec2-fs"
-    mount -o loop /mnt/image/$IMAGE_NAME /mnt/ec2-fs
-    mkdir /mnt/ec2-fs/dev
-    /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x console
-    /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x null
-    /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x zero
-	mkdir /mnt/ec2-fs/dev/pts
-    mkdir /mnt/ec2-fs/proc
-    mount -t proc none /mnt/ec2-fs/proc
-    mkdir /mnt/ec2-fs/etc
-
-    echo "Created 10Gb disk image and filesystems"
+  echo "Creating 10GB Image"
+  mkdir /mnt/image
+  dd if=/dev/zero of=/mnt/image/$IMAGE_NAME bs=1M count=10240
+  echo "Creating File System"
+  mke2fs -F -j /mnt/image/$IMAGE_NAME
+  mkdir /mnt/ec2-fs
+  echo "Mounting File System in /mnt/ec2-fs"
+  mount -o loop /mnt/image/$IMAGE_NAME /mnt/ec2-fs
+  mkdir /mnt/ec2-fs/dev
+  /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x console
+  /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x null
+  /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x zero
+  mkdir /mnt/ec2-fs/dev/pts
+  mkdir /mnt/ec2-fs/proc
+  mount -t proc none /mnt/ec2-fs/proc
+  mkdir /mnt/ec2-fs/etc
+  
+  echo "Created 10Gb disk image and filesystems"
 }
 
 create32Fstab() {
-    cat <<'EOL' > /mnt/ec2-fs/etc/fstab
+  cat <<'EOL' > /mnt/ec2-fs/etc/fstab
 /dev/sda1  /         ext3    defaults        1 1
 /dev/sda2  /mnt      ext3    defaults        1 2
 /dev/sda3  swap      swap    defaults        0 0
@@ -53,7 +53,7 @@ EOL
 }
 
 create64Fstab() {
-    cat <<'EOL' > /mnt/ec2-fs/etc/fstab
+  cat <<'EOL' > /mnt/ec2-fs/etc/fstab
 /dev/sda1  /         ext3 defaults 1 1
 /dev/sdb   /mnt      ext3 defaults 1 2
 none       /dev/pts  devpts  gid=5,mode=620  0 0
@@ -64,13 +64,13 @@ EOL
 }
 
 doBaseAndSecondaryInstall() {
-    echo "Creating Yum Confuration for Base install"
-    mkdir -p /mnt/ec2-fs/sys/block
-    mkdir -p /mnt/ec2-fs/var/
-    mkdir -p /mnt/ec2-fs/var/log/
-    mkdir -p /mnt/ec2-fs/var/lib/yum/
-    touch /mnt/ec2-fs/var/log/yum.log
-    cat <<EOL > /mnt/image/yum.conf
+  echo "Creating Yum Confuration for Base install"
+  mkdir -p /mnt/ec2-fs/sys/block
+  mkdir -p /mnt/ec2-fs/var/
+  mkdir -p /mnt/ec2-fs/var/log/
+  mkdir -p /mnt/ec2-fs/var/lib/yum/
+  touch /mnt/ec2-fs/var/log/yum.log
+  cat <<EOL > /mnt/image/yum.conf
 [main]
 cachedir=/var/cache/yum
 keepcache=0
@@ -156,50 +156,50 @@ gpgkey = http://dag.wieers.com/packages/RPM-GPG-KEY.dag.txt
 #gpgkey = file:///etc/pki/rpm-gpg/RPM-GPG-KEY-rpmforge-dag
 gpgcheck = 1
 EOL
-    echo "Running Yum"
-    yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y groupinstall Base
-    echo "Finished Base install"
-    echo "Starting Secondary install"
-    yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y install postfix openssh openssh-askpass openssh-clients openssh-server gcc* bison flex compat-libstdc++-296 subversion autoconf automake libtool compat-gcc-34-g77 sysstat rpm-build fping vim-common vim-enhanced pkgconfig elinks screen yum-utils rsyslog rpmforge-release dstat monit ifstat net-snmp
-    yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y erase sendmail
-    yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y clean packages
-    cat <<EOL > /mnt/ec2-fs/etc/sysconfig/network
+  echo "Running Yum"
+  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y groupinstall Base
+  echo "Finished Base install"
+  echo "Starting Secondary install"
+  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y install postfix openssh openssh-askpass openssh-clients openssh-server gcc* bison flex compat-libstdc++-296 subversion autoconf automake libtool compat-gcc-34-g77 sysstat rpm-build fping vim-common vim-enhanced pkgconfig elinks screen yum-utils rsyslog rpmforge-release dstat monit ifstat net-snmp
+  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y erase sendmail
+  yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y clean packages
+  cat <<EOL > /mnt/ec2-fs/etc/sysconfig/network
 NETWORKING=yes
 HOSTNAME=localhost.localdomain
 EOL
 
-    cat <<EOL > /mnt/ec2-fs/etc/sysconfig/network-scripts/ifcfg-eth0
+  cat <<EOL > /mnt/ec2-fs/etc/sysconfig/network-scripts/ifcfg-eth0
 ONBOOT=yes
 DEVICE=eth0
 BOOTPROTO=dhcp
 EOL
 
-    cat <<EOL >> /mnt/ec2-fs/etc/ssh/sshd_config
+  cat <<EOL >> /mnt/ec2-fs/etc/ssh/sshd_config
 UseDNS  no
 PermitRootLogin without-password
 EOL
 
-    echo "Finished Secondary install"
+  echo "Finished Secondary install"
 }
 
 install32KernelModules() {
-	echo "Fetch Amazon EC2 kernel modules"
-	curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
-	echo "Installing EC2 kernel modules"
-	tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz -C /mnt/ec2-fs/
-	rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
+  echo "Fetch Amazon EC2 kernel modules"
+  curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
+  echo "Installing EC2 kernel modules"
+  tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz -C /mnt/ec2-fs/
+  rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-i686.tgz
 }
 
 install64KernelModules() {
-	echo "Fetch Amazon EC2 kernel modules"
-	curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
-	echo "Installing EC2 kernel modules"
-	tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz -C /mnt/ec2-fs/
-	rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
+  echo "Fetch Amazon EC2 kernel modules"
+  curl -o /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz http://ec2-downloads.s3.amazonaws.com/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
+  echo "Installing EC2 kernel modules"
+  tar -xzf /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz -C /mnt/ec2-fs/
+  rm -fr /tmp/ec2-modules-2.6.18-xenU-ec2-v1.0-x86_64.tgz
 }
 
 setLdConfPatchStringFor32bit() {
-	cat <<'LDCONF_PATCH' >> /mnt/ld_conf_patch
+  cat <<'LDCONF_PATCH' >> /mnt/ld_conf_patch
 #fix '4gb seg fixup' Xen errors
 cat <<'LDCONF' > /etc/ld.so.conf.d/libc6-xen.conf
 # This directive teaches ldconfig to search in nosegneg subdirectories
@@ -215,20 +215,19 @@ LDCONF_PATCH
 }
 
 doPostInstall() {
-    echo "Performing (chrooted) Post install"
-    mkdir -p /mnt/ec2-fs/tmp/
-    touch /mnt/ec2-fs/etc/mtab
-    cat <<'EOL' > /mnt/ec2-fs/tmp/post-install-script
-
+  echo "Performing (chrooted) Post install"
+  mkdir -p /mnt/ec2-fs/tmp/
+  touch /mnt/ec2-fs/etc/mtab
+  cat <<'EOL' > /mnt/ec2-fs/tmp/post-install-script
 
 echo "Starting Post install"
 echo "127.0.0.1     localhost   localhost.localdomain" > /etc/hosts
 authconfig --enableshadow --useshadow --enablemd5 --updateall
 
 EOL
-	test -f /mnt/ld_conf_patch && cat /mnt/ld_conf_patch >> /mnt/ec2-fs/tmp/post-install-script
+  test -f /mnt/ld_conf_patch && cat /mnt/ld_conf_patch >> /mnt/ec2-fs/tmp/post-install-script
 
-	cat <<'EOL' >> /mnt/ec2-fs/tmp/post-install-script
+  cat <<'EOL' >> /mnt/ec2-fs/tmp/post-install-script
 echo "/sbin/MAKEDEV /dev/urandom" >> /etc/rc.sysinit
 echo "/sbin/MAKEDEV /dev/random" >> /etc/rc.sysinit
 echo "/sbin/MAKEDEV /dev/sdc" >> /etc/rc.sysinit
@@ -495,69 +494,72 @@ exit
 
 EOL
 
-    chmod +x /mnt/ec2-fs/tmp/post-install-script
-    chroot /mnt/ec2-fs/ /tmp/post-install-script
-    echo "Cleaning up Image"
-    echo "$IMAGE_NAME version $IMAGE_VERSION" > /mnt/ec2-fs/etc/t3-ami-release
-    echo "Finished Post Install"
+  chmod +x /mnt/ec2-fs/tmp/post-install-script
+  chroot /mnt/ec2-fs/ /tmp/post-install-script
+  echo "Cleaning up Image"
+  echo "$IMAGE_NAME version $IMAGE_VERSION" > /mnt/ec2-fs/etc/t3-ami-release
+  echo "Finished Post Install"
 }
 
 bundleVolume() {
-    sync
-    echo "Bundling Volume"
-    mkdir -p /mnt/tmp
-    if [ -z "$KERNEL_ID" ]; then
-      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture
-    else 
-      ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture --kernel $KERNEL_ID
-    fi
-    echo "Finished Bundling Volume"
+  sync
+  echo "Bundling Volume"
+  mkdir -p /mnt/tmp
+  if [ -z "$KERNEL_ID" ]; then
+    ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture
+  else 
+    ec2-bundle-vol -v /mnt/ec2-fs -d /mnt/tmp -p $IMAGE_NAME -k $EC2_PRIVATE_KEY -c $EC2_CERT -u $AWS_ACCOUNT_NUMBER --fstab /mnt/ec2-fs/etc/fstab -r $architecture --kernel $KERNEL_ID
+  fi
+  echo "Finished Bundling Volume"
 
 }
 
 uploadBundle() {
-    echo "Uploading Bundle"
-    ec2-upload-bundle -b $AWS_BUCKET -m /mnt/tmp/$IMAGE_NAME.manifest.xml -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY --retry 5
-    echo "Finished Uploading Bundle"
+  echo "Uploading Bundle"
+  ec2-upload-bundle -b $AWS_BUCKET -m /mnt/tmp/$IMAGE_NAME.manifest.xml -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY --retry 5
+  echo "Finished Uploading Bundle"
+}
+
+registerAmi() {
+  
 }
 
 cleanup() {
-    echo "Starting Cleanup"
-    echo "Unmounting /mnt/ec2-fs"
-    umount /mnt/ec2-fs/proc
-    umount -d /mnt/ec2-fs
-    rm -fr /mnt/image/
-    rm -fr /mnt/ec2-fs
-    rm -fr /mnt/tmp
-    echo "File System Cleaned"
-    echo "Done! Put a fork in it!"
+  echo "Starting Cleanup"
+  echo "Unmounting /mnt/ec2-fs"
+  umount /mnt/ec2-fs/proc
+  umount -d /mnt/ec2-fs
+  rm -fr /mnt/image/
+  rm -fr /mnt/ec2-fs
+  rm -fr /mnt/tmp
+  echo "File System Cleaned"
+  echo "Done! Put a fork in it!"
 }
 
 if [ "$architecture" == "i386" ]; then
-	echo "Building i386 AMI"
-	updateEc2AmiTools
-	makeImageAndFilesystems
-	create32Fstab
-	doBaseAndSecondaryInstall
-	install32KernelModules
-	setLdConfPatchStringFor32bit
-	doPostInstall
-	bundleVolume
-	uploadBundle
-	# cleanup
+  echo "Building i386 AMI"
+  updateEc2AmiTools
+  makeImageAndFilesystems
+  create32Fstab
+  doBaseAndSecondaryInstall
+  install32KernelModules
+  setLdConfPatchStringFor32bit
+  doPostInstall
+  bundleVolume
+  uploadBundle
+  # cleanup
 elif [ "$architecture" == "x86_64" ]; then
-	echo "Building x86_64 AMI"
-	updateEc2AmiTools
-	makeImageAndFilesystems
-	create64Fstab
-	doBaseAndSecondaryInstall
-	install64KernelModules
-	doPostInstall
-	bundleVolume
-	uploadBundle
-	# cleanup
+  echo "Building x86_64 AMI"
+  updateEc2AmiTools
+  makeImageAndFilesystems
+  create64Fstab
+  doBaseAndSecondaryInstall
+  install64KernelModules
+  doPostInstall
+  bundleVolume
+  uploadBundle
+  # cleanup
 else
-	echo "Please set your architecture to i386 or x86_64"
-	exit 1
+  echo "Please set your architecture to i386 or x86_64"
+  exit 1
 fi
-
