@@ -144,18 +144,6 @@ gpgcheck=1
 enabled=0
 gpgkey=http://mirror.centos.org/centos/RPM-GPG-KEY-CentOS-5
 
-# Name: RPMforge RPM Repository for Red Hat Enterprise 5 - dag
-# URL: http://rpmforge.net/
-[rpmforge]
-name = Red Hat Enterprise 5 - RPMforge.net - dag
-#baseurl = http://apt.sw.be/redhat/el5/en/$basearch/dag
-mirrorlist = http://apt.sw.be/redhat/el5/en/mirrors-rpmforge
-#mirrorlist = file:///etc/yum.repos.d/mirrors-rpmforge
-enabled = 1
-protect = 0
-gpgkey = http://dag.wieers.com/packages/RPM-GPG-KEY.dag.txt
-#gpgkey = file:///etc/pki/rpm-gpg/RPM-GPG-KEY-rpmforge-dag
-gpgcheck = 1
 EOL
   echo "Running Yum"
   yum -c /mnt/image/yum.conf --installroot=/mnt/ec2-fs -y groupinstall Base
