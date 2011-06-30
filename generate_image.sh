@@ -5,7 +5,7 @@
 
 # export architecture="i386"
 export architecture="x86_64"
-export IMAGE_NAME=centos5-$architecture-2
+export IMAGE_NAME=centos5-$architecture-micro
 export IMAGE_VERSION=alpha1
 # For vmlinuz-2.6.18-xenU-ec2-v1.0.i386
 # export KERNEL_ID=aki-9b00e5f2       #32bit - doesn't seem to be neccessary, does work.
@@ -19,7 +19,16 @@ updateEc2AmiTools() {
   rpm -Uvh ec2-ami-tools.noarch.rpm || true
 }
 
-makeImageAndFilesystems() {
+setupEbsVolume() {
+	echo "mounting EBS Volume"
+	mkfs -t ext3 -F /dev/sdf
+	mkdir -p /mnt/ec2-fs
+	mount -t ext3 /dev/sdf /mnt/ec2-fs
+	mkdir -p /mnt/image
+}
+
+# for s3 backed AMIs
+setupLoobackVolume() { 
   echo "Creating 10GB Image"
   mkdir /mnt/image
   dd if=/dev/zero of=/mnt/image/$IMAGE_NAME bs=1M count=10240
@@ -28,6 +37,9 @@ makeImageAndFilesystems() {
   mkdir /mnt/ec2-fs
   echo "Mounting File System in /mnt/ec2-fs"
   mount -o loop /mnt/image/$IMAGE_NAME /mnt/ec2-fs
+}
+
+makeFilesystems() {
   mkdir /mnt/ec2-fs/dev
   /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x console
   /sbin/MAKEDEV -d /mnt/ec2-fs/dev -x null
@@ -37,7 +49,7 @@ makeImageAndFilesystems() {
   mount -t proc none /mnt/ec2-fs/proc
   mkdir /mnt/ec2-fs/etc
   
-  echo "Created 10Gb disk image and filesystems"
+  echo "base directory layout and proc fs created"
 }
 
 create32Fstab() {
@@ -56,7 +68,7 @@ EOL
 create64Fstab() {
   cat <<'EOL' > /mnt/ec2-fs/etc/fstab
 /dev/sda1  /         ext3 defaults 1 1
-/dev/sdb   /mnt      ext3 defaults 1 2
+#/dev/sdb   /mnt      ext3 defaults 1 2 # Ephemeral storage isn't present on micros
 none       /dev/pts  devpts  gid=5,mode=620  0 0
 none       /dev/shm  tmpfs   defaults        0 0
 none       /proc     proc    defaults        0 0
@@ -459,6 +471,12 @@ EOL
   echo "Finished Post Install"
 }
 
+unmountEBS() {
+	umount /mnt/ec2-fs/proc/
+	umount /mnt/ec2-fs
+}
+
+# s3 backed AMI only
 bundleVolume() {
   sync
   echo "Bundling Volume"
@@ -472,6 +490,7 @@ bundleVolume() {
 
 }
 
+# s3 backed AMI only
 uploadBundle() {
   echo "Uploading Bundle"
   ec2-upload-bundle -b $AWS_BUCKET -m /mnt/tmp/$IMAGE_NAME.manifest.xml -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY --retry 5
@@ -494,7 +513,8 @@ cleanup() {
 if [ "$architecture" == "i386" ]; then
   echo "Building i386 AMI"
   updateEc2AmiTools
-  makeImageAndFilesystems
+	setupEbsVolume
+  makeFilesystems
   create32Fstab
   doBaseAndSecondaryInstall
   install32KernelModules
@@ -506,13 +526,15 @@ if [ "$architecture" == "i386" ]; then
 elif [ "$architecture" == "x86_64" ]; then
   echo "Building x86_64 AMI"
   updateEc2AmiTools
-  makeImageAndFilesystems
+	setupEbsVolume
+  makeFilesystems
   create64Fstab
   doBaseAndSecondaryInstall
   install64KernelModules
   doPostInstall
-  bundleVolume
-  uploadBundle
+	unmountEBS
+  # bundleVolume
+  # uploadBundle
   # cleanup
 else
   echo "Please set your architecture to i386 or x86_64"
